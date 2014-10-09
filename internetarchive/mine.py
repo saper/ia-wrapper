@@ -127,3 +127,9 @@ class Mine(object):
             self.loop.run_until_complete(self._get_future_item())
         except KeyboardInterrupt:
             sys.exit(127)
+
+    # __iter__()
+    # ____________________________________________________________________________________
+    def __iter__(self):
+        raise TypeError("'Mine' object is no longer an iterable. Please refer to the "
+                        "internetarchive modules documenation.")
