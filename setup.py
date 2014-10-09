@@ -25,14 +25,8 @@ setup(
         'PyYAML==3.10',
         'clint==0.3.3',
         'six==1.4.1',
+        'trollius==1.0.2',
     ],
-    extras_require = {
-        'speedups': [
-            'ujson==1.33',
-            'Cython==0.18',
-            'gevent==1.0',
-        ],
-    },
     classifiers=(
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',

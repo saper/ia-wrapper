@@ -21,13 +21,6 @@ You can install this module via pip:
 
 ``pip install internetarchive``
 
-Alternatively, you can install a few extra dependencies to help speed things up a bit:
-
-``pip install "internetarchive[speedups]"``
-
-This will install `ujson <https://pypi.python.org/pypi/ujson>`__ for faster JSON parsing,
-and `gevent <https://pypi.python.org/pypi/gevent>`__ for concurrent downloads.
-
 If you want to install this module globally on your system instead of inside a ``virtualenv``, use sudo:
 
 ``sudo pip install internetarchive``
@@ -109,14 +102,6 @@ IAS3\_SECRET\_KEY environment variables are set.
 
 Data Mining
 ~~~~~~~~~~~
-
-If you have the Python library ``gevent`` installed, you can use the ``ia mine`` command.
-``gevent`` is automatically installed if you installed ``ia`` via ``pip install "internetarchive[speedups]"``.
-You can also install ``gevent`` like so:
-
-.. code:: bash
-
-    $ pip install cython git+git://github.com/surfly/gevent.git@1.0rc2#egg=gevent
 
 ``ia mine`` can be used to concurrently retrieve metadata for items via the `IA Metadata API <http://blog.archive.org/2013/07/04/metadata-api/>`__.
 

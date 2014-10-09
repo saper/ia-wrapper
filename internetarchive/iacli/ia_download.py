@@ -3,7 +3,7 @@
 usage:
     ia download [--quiet] [--dry-run] [--ignore-existing] [--checksum]
                 [--no-directories] [--source=<source>... | --original]
-                [--glob=<pattern> | --format=<format>...] [--concurrent] <identifier>
+                [--glob=<pattern> | --format=<format>...] <identifier>
                 [<file>...]
     ia download --help
 
@@ -26,9 +26,6 @@ options:
 
     --no-directories          Download files into working directory. Do not
                               create item directories.
-    -c, --concurrent          Download files concurrently using the Python
-                              gevent networking library (gevent must be
-                              installed).
 
 """
 import os
@@ -83,7 +80,6 @@ def main(argv):
         ia_source = None
 
     item.download(
-        concurrent=args['--concurrent'],
         source=ia_source,
         formats=args['--format'],
         glob_pattern=args['--glob'],

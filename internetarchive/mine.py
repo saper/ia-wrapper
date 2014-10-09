@@ -1,115 +1,129 @@
-try:
-    from gevent import monkey, queue, spawn
-    from gevent.hub import LoopExit
-    monkey.patch_all(thread=False)
-except ImportError:
-    raise ImportError(
-        """No module named gevent
+import sys
+from functools import partial
 
-        This feature requires the gevent neworking library. gevent
-        and all of it's dependencies can be installed with pip:
-        \tpip install cython gevent
-
-        """)
-
+import trollius as asyncio
+from trollius import From
 from internetarchive import get_item
-from internetarchive.session import get_session
-from requests.exceptions import RequestException
+from internetarchive.session import ArchiveSession
 
 
 # Mine class
 # ________________________________________________________________________________________
 class Mine(object):
-    """This class is for concurrently retrieving metadata for items on
-    Archive.org.
+    """This class is for concurrently retrieving
+    :class:`internetarchive.Item <Item>` objects.
 
     Usage::
 
-        >>> import internetarchive
-        >>> miner = internetarchive.Mine(['identifier1', 'identifier2'], workers=50)
-        >>> for md in miner:
-        ...     print md
+        >>> from internetarchive.mine import Mine
+        >>> identifiers = [x.strip() for x in open('itemlist.txt')]
+        >>> miner = Mine(identifiers)
+        >>> miner.run()
+        ...
 
-        """
+    A callback can be provided to process the
+    :class:`internetarchive.Item <Item>` object as well::
+
+        >>> def print_item_title(item):
+        ...     print(item.metadata.get('title'))
+        >>> miner = Mine(identifiers, callback=print_item_title)
+        >>> miner.run()
+        ...
+
+    If no callback is provided, each items metadata is dumped to
+    stdout.
+
+    """
     # __init__()
     # ____________________________________________________________________________________
-    def __init__(self, identifiers, workers=20, max_requests=10):
-        """Makes a generator for an list of `(index, item)` where `item`
-        is an instance of `Item` containing metadata, and index is the index,
-        for each id in `identifiers`. Note: this does not return the
-        items in the same order as given in the identifiers list
-
+    def __init__(self, identifiers, callback=None, callback_kwargs=None,
+                 max_workers=None):
+        """
         :type identifiers: list
-        :param identifiers: a list of identifiers to get the metadata of
-        :type workers: int
-        :param workers: the number of concurrent workers to have fecthing the metadata
-        :type max_requests: int or None
-        :param max_requests: the number of times to try fetching the metadata,
-        in case there is something wrong with requesting it
+        :param identifiers: a list of identifiers to concurrently
+                            retrieve.
 
-        :rtype: Mine
+        :type callback: function
+        :param callback: The function to call on each
+                         :class:`internetarchive.Item <Item>` object as
+                         they are retrieved.
+
+        :type callback_kwargs: dict
+        :param callback_kwargs: A dict of kwargs for the callback
+                                function.
+
+        :type max_workers: int
+        :param max_workers: the number of concurrent workers to have
+                            fecthing the metadata
 
         """
-        self.skips = []
-        self.queue = queue
-        self.workers = workers
+        max_workers = 100 if max_workers is None else max_workers
+        callback_kwargs = {} if callback_kwargs is None else callback_kwargs
+
         self.identifiers = identifiers
-        self.item_count = len(identifiers)
-        self.max_requests = max_requests
-        self.queued_count = 0
-        self.got_count = 0
-        self.input_queue = self.queue.JoinableQueue(1000)
-        self.json_queue = self.queue.Queue(1000)
-        
-        # Use the same session for each item fetch.
-        self.session = get_session()
+        self.callback = callback
+        self.callback_kwargs = callback_kwargs
+        self.http_session = ArchiveSession()
+        self.all_identifiers_queued = False
 
-    # _metadata_getter()
+        self.loop = asyncio.get_event_loop()
+        self.input_queue = asyncio.Queue(maxsize=1000)
+        self.sem = asyncio.Semaphore(max_workers)
+
+    # _queue_identifiers()
     # ____________________________________________________________________________________
-    def _metadata_getter(self):
+    @asyncio.coroutine
+    def _queue_identifiers(self):
+        """Queue identifiers to be retrieved.
+
+        """
+        for identifier in self.identifiers:
+            yield From(self.input_queue.put(identifier.strip()))
+        self.all_identifiers_queued = True
+
+    # _done_callback()
+    # ____________________________________________________________________________________
+    def _done_callback(self, future):
+        item = future.result()
+        if self.callback:
+            callback_func = partial(self.callback, item, **self.callback_kwargs)
+            callback_future = self.loop.run_in_executor(None, callback_func)
+        else:
+            sys.stdout.write('{0}\n'.format(item._json))
+
+    # _get_future_item()
+    # ____________________________________________________________________________________
+    @asyncio.coroutine
+    def _get_future_item(self):
+        """Retrieve future :class:`internetarchive.Item <Item>` objects
+        and call `callback` if one is provided.
+
+        """
+        asyncio.async(self._queue_identifiers())
         while True:
-            i, identifier, num_requests = self.input_queue.get()
-            try:
-                item = get_item(identifier, archive_session=self.session)
-                self.json_queue.put((i, item))
-            except Exception as e:
-                if (type(e) == RequestException and
-                        (self.max_requests is None or num_requests < self.max_requests)):
-                    self.input_queue.put((i, identifier, num_requests+1))
-                else:
-                    if identifier not in self.skips:
-                        self.skips.append(identifier)
-                    self.item_count -= 1
-                    self.queued_count -= 1
-                    if e.args is not None and len(e.args) > 0 and type(e.args[0]) == str:
-                        e.args = ((e.args[0]+' when processing id '+repr(identifier),) +
-                                  e.args[1:])
-            finally:
-                self.input_queue.task_done()
+            if self.all_identifiers_queued and self.input_queue.empty():
+                break
+            identifier = yield From(self.input_queue.get())
 
-    # _queue_input()
+            # Use `functools.partial()` to call `get_item()` with kwargs
+            get_item_func = partial(
+                get_item, identifier, archive_session=self.http_session
+            )
+            future = self.loop.run_in_executor(None, get_item_func)
+            future.add_done_callback(self._done_callback)
+
+            with (yield From(self.sem)):
+                item = yield From(future)
+                item.http_session.close()
+
+    # _get_future_item()
     # ____________________________________________________________________________________
-    def _queue_input(self):
-        for i, identifier in enumerate(self.identifiers):
-            if identifier not in self.skips:
-                self.input_queue.put((i, identifier, 0))
-                self.queued_count += 1
+    def run(self):
+        """Start the event loop, and retrieve all
+        :class:`internetarchive.Item <Item>` objects.
 
-    # __iter__()
-    # ____________________________________________________________________________________
-    def __iter__(self):
-        self.queued_count = 0
-        self.got_count = 0
-        spawn(self._queue_input)
-        for i in range(self.workers):
-            spawn(self._metadata_getter)
-
-        def metadata_iterator_helper():
-            while self.queued_count < self.item_count or self.got_count < self.queued_count:
-                self.got_count += 1
-                try:
-                    yield self.json_queue.get()
-                except LoopExit:
-                    raise StopIteration
-
-        return metadata_iterator_helper()
+        """
+        try:
+            self.loop.run_until_complete(self._get_future_item())
+        except KeyboardInterrupt:
+            sys.exit(127)

@@ -13,6 +13,7 @@ options:
 """
 import sys
 import json
+from functools import partial
 
 from docopt import docopt
 from clint.textui import progress
@@ -20,8 +21,19 @@ from clint.textui import progress
 from internetarchive import get_data_miner
 
 
+# cache_metadata()
+# ________________________________________________________________________________________
+def cache_metadata(item, output=None):
+    if output:
+        with open(output, 'a+') as fp:
+            json.dump(item._json, fp)
+            fp.write('\n')
+    else:
+        with open('{0}_meta.json'.format(item.identifier), 'w') as fp:
+            json.dump(item._json, fp)
+
 # ia_mine()
-#_________________________________________________________________________________________
+# ________________________________________________________________________________________
 def main(argv):
     args = docopt(__doc__, argv=argv)
 
@@ -33,28 +45,17 @@ def main(argv):
         identifiers = [i.strip() for i in itemfile]
 
     workers = int(args.get('--workers', 20)[0])
-    miner = get_data_miner(identifiers, workers=workers)
 
-    # Progress bar
-    if args['--cache'] or args['--output']:
-        if args['<itemlist.txt>'] != '-':
-            itemfile_fname = args['<itemlist.txt>']
-        else:
-            itemfile_fname = 'stdin'
-        miner = progress.bar(miner, expected_size=len(identifiers),
-                             label='mining items from {0}: '.format(itemfile_fname))
+    callback_kwargs = None
+    if args['--cache']:
+        callback_func = cache_metadata
+    elif args['--output']:
+        callback_func = cache_metadata
+        callback_kwargs = dict(output=args['--output'])
+    else:
+        callback_func = None
 
-    for i, item in miner:
-        metadata = json.dumps(item._json)
-        if args['--cache']:
-            with open('{0}_meta.json'.format(item.identifier), 'w') as fp:
-                fp.write(metadata)
-        elif args['--output']:
-            with open(args['--output'], 'a+') as fp:
-                fp.write(metadata + '\n')
-        else:
-            try:
-                sys.stderr.write(metadata + '\n')
-            except IOError:
-                break
+    miner = get_data_miner(identifiers, callback=callback_func,
+                           callback_kwargs=callback_kwargs, max_workers=workers)
+    miner.run()
     sys.exit(0)
