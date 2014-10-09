@@ -12,7 +12,10 @@ options:
 
 """
 import sys
-import json
+try:
+    import ujson as json
+except ImportError:
+    import json
 from functools import partial
 
 from docopt import docopt
