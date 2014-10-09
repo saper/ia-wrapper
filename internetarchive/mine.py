@@ -1,5 +1,9 @@
 import sys
 from functools import partial
+try:
+    import ujson as json
+except ImportError:
+    import json
 
 import trollius as asyncio
 from trollius import From
@@ -89,7 +93,8 @@ class Mine(object):
             callback_func = partial(self.callback, item, **self.callback_kwargs)
             callback_future = self.loop.run_in_executor(None, callback_func)
         else:
-            sys.stdout.write('{0}\n'.format(item._json))
+            json.dump(item._json, sys.stdout)
+            sys.stdout.write('\n')
 
     # _get_future_item()
     # ____________________________________________________________________________________
