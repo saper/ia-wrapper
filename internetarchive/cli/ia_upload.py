@@ -229,7 +229,7 @@ def main(argv, session):
                 item = session.get_item(identifier)
                 # TODO: Clean up how indexed metadata items are coerced
                 # into metadata.
-                md_args = ['{0}:{1}'.format(k.lower(), v) for (k, v) in row.items() if v]
+                md_args = ['{0}:{1}'.format(k.decode("utf-8").lower(), v.decode("utf-8")) for (k, v) in row.items() if v]
                 metadata = get_args_dict(md_args)
                 upload_kwargs['metadata'].update(metadata)
                 r = _upload_files(item, local_file, upload_kwargs, prev_identifier,
